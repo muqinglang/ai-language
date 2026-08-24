@@ -56,6 +56,18 @@ services:
       AUTH_SELF_SIGNUP: ${AUTH_SELF_SIGNUP:-true}
       AUTH_NEW_USER_TRIAL_DAYS: ${AUTH_NEW_USER_TRIAL_DAYS:-0}
       GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:-}
+      # Email verification (see backend/app/services/email.py). Off by default;
+      # configure SMTP_* below and set this true to enforce, otherwise codes
+      # only go to the log and real users can't receive them.
+      AUTH_REQUIRE_EMAIL_VERIFICATION: ${AUTH_REQUIRE_EMAIL_VERIFICATION:-false}
+      EMAIL_CODE_TTL_MINUTES: ${EMAIL_CODE_TTL_MINUTES:-15}
+      SMTP_HOST: ${SMTP_HOST:-}
+      SMTP_PORT: ${SMTP_PORT:-465}
+      SMTP_USER: ${SMTP_USER:-}
+      SMTP_PASSWORD: ${SMTP_PASSWORD:-}
+      SMTP_USE_SSL: ${SMTP_USE_SSL:-true}
+      EMAIL_FROM: ${EMAIL_FROM:-}
+      EMAIL_FROM_NAME: ${EMAIL_FROM_NAME:-justSpeak}
       # Encrypts learner-supplied third-party API keys at rest. Unset →
       # the "bring your own key" feature is off and /api/me/llm 503s,
       # rather than storing spendable credentials in plaintext.

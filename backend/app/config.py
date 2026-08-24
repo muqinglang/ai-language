@@ -24,6 +24,25 @@ class Settings(BaseSettings):
     # to hand out N-day trials instead.
     auth_new_user_trial_days: int = 0
 
+    # ---- Email verification (see routers/auth.py + services/email.py) ----
+    # When true, a self-signup must enter a 6-digit code emailed to them
+    # before the account can log in (the email_verified gate). Default FALSE
+    # so a deployment without a mail sender still works — turn it ON only
+    # AFTER SMTP_* below is configured, otherwise nobody receives the code.
+    # When no SMTP sender is configured, the code is written to the api log
+    # (for local dev / staging) instead of emailed.
+    auth_require_email_verification: bool = False
+    email_code_ttl_minutes: int = 15
+    # SMTP sender. All-empty → no real email is sent (code goes to the log).
+    # Fill these to send for real, e.g. 阿里云邮件推送 / QQ / 163 SMTP.
+    smtp_host: str = ""
+    smtp_port: int = 465
+    smtp_user: str = ""
+    smtp_password: str = ""
+    smtp_use_ssl: bool = True        # 465 = SSL; for STARTTLS use false + port 587
+    email_from: str = ""             # falls back to smtp_user when empty
+    email_from_name: str = "justSpeak"
+
     # Google Sign-In (Google Identity Services).  The frontend renders
     # the Google button only when this is set, and posts the resulting
     # ID token to /auth/google where services/google_auth.py verifies

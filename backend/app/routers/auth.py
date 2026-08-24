@@ -1,8 +1,10 @@
+import asyncio
 import re
+import secrets
 from datetime import datetime, timedelta, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Response
-from pydantic import BaseModel
+from pydantic import BaseModel, EmailStr
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -18,7 +20,13 @@ from ..schemas import (
     UserOut,
     UserRegister,
 )
+from ..services.email import send_verification_code
 from ..services.google_auth import GoogleAuthError, verify_id_token
+
+
+def _new_code() -> str:
+    """A 6-digit numeric verification code."""
+    return f"{secrets.randbelow(1_000_000):06d}"
 
 router = APIRouter(prefix="/api/auth", tags=["auth"])
 
@@ -85,8 +93,8 @@ async def auth_config() -> AuthConfigOut:
     )
 
 
-@router.post("/register", response_model=TokenOut)
-async def register(body: UserRegister, db: AsyncSession = Depends(get_db)) -> TokenOut:
+@router.post("/register")
+async def register(body: UserRegister, db: AsyncSession = Depends(get_db)):
     """Self-serve signup — email + password, instant AUTH_NEW_USER_TRIAL_DAYS access.
 
     Email is the account key.  An address that already exists is refused
@@ -112,6 +120,7 @@ async def register(body: UserRegister, db: AsyncSession = Depends(get_db)) -> To
     else:
         username = await _unique_username(db, email.split("@", 1)[0])
 
+    require_verify = settings.auth_require_email_verification
     user = User(
         username=username,
         email=email,
@@ -119,14 +128,29 @@ async def register(body: UserRegister, db: AsyncSession = Depends(get_db)) -> To
         role="user",
         auth_provider="local",
         expires_at=_trial_expiry(),
+        email_verified=not require_verify,
     )
+    if require_verify:
+        user.verify_code = _new_code()
+        user.verify_code_expires = datetime.now(timezone.utc) + timedelta(
+            minutes=settings.email_code_ttl_minutes
+        )
+        user.verify_sent_at = datetime.now(timezone.utc)
     db.add(user)
     await db.commit()
     await db.refresh(user)
-    return TokenOut(
+
+    if require_verify:
+        # Send (or, when SMTP is unconfigured, log) the code. No token yet —
+        # the account can't be used until the code is confirmed.
+        await asyncio.to_thread(send_verification_code, email, user.verify_code)
+        return {"needs_verification": True, "email": email}
+
+    token = TokenOut(
         access_token=create_token(user.id, user.role),
         user=UserOut.model_validate(user),
     )
+    return {"needs_verification": False, **token.model_dump()}
 
 
 @router.post("/google", response_model=TokenOut)
@@ -200,6 +224,14 @@ async def login(body: UserLogin, db: AsyncSession = Depends(get_db)) -> TokenOut
         if user is not None and not user.password_hash:
             raise HTTPException(401, "该邮箱通过 Google 注册，请用 Google 登录")
         raise HTTPException(401, "invalid credentials")
+    # Email not confirmed yet (only gated when the feature is on). Structured
+    # detail so the frontend can route to the "输入验证码" screen and resend.
+    if settings.auth_require_email_verification and not user.email_verified:
+        raise HTTPException(403, detail={
+            "code": "email_unverified",
+            "email": user.email,
+            "message": "邮箱还没验证，请查收验证码后完成注册",
+        })
     # Refuse to issue a token if the trial has already lapsed.  We use
     # the same {code, expired_at} shape as auth.current_user so the
     # frontend can render one consistent "联系管理员延期" message
@@ -239,3 +271,57 @@ async def change_password(
     user.password_hash = hash_password(new)
     await db.commit()
     return Response(status_code=204)
+
+
+class VerifyEmailIn(BaseModel):
+    email: EmailStr
+    code: str
+
+
+@router.post("/verify-email", response_model=TokenOut)
+async def verify_email(body: VerifyEmailIn, db: AsyncSession = Depends(get_db)) -> TokenOut:
+    """Confirm the 6-digit signup code → mark verified → log the user in."""
+    email = body.email.strip().lower()
+    user = await db.scalar(select(User).where(User.email == email))
+    if not user:
+        raise HTTPException(404, "该邮箱还没注册")
+    if not user.email_verified:
+        code = body.code.strip()
+        if not user.verify_code or not code:
+            raise HTTPException(400, "请先获取验证码")
+        if user.verify_code_expires and user.verify_code_expires < datetime.now(timezone.utc):
+            raise HTTPException(400, "验证码已过期，请重新获取")
+        if code != user.verify_code:
+            raise HTTPException(400, "验证码不正确")
+        user.email_verified = True
+        user.verify_code = ""
+        user.verify_code_expires = None
+        await db.commit()
+        await db.refresh(user)
+    return TokenOut(
+        access_token=create_token(user.id, user.role),
+        user=UserOut.model_validate(user),
+    )
+
+
+class ResendCodeIn(BaseModel):
+    email: EmailStr
+
+
+@router.post("/resend-code")
+async def resend_code(body: ResendCodeIn, db: AsyncSession = Depends(get_db)):
+    """Re-send the signup code (rate-limited to once per minute)."""
+    email = body.email.strip().lower()
+    user = await db.scalar(select(User).where(User.email == email))
+    # Don't reveal whether an email exists or is already verified.
+    if not user or user.email_verified:
+        return {"status": "ok"}
+    now = datetime.now(timezone.utc)
+    if user.verify_sent_at and (now - user.verify_sent_at).total_seconds() < 60:
+        raise HTTPException(429, "发送太频繁，请 1 分钟后再试")
+    user.verify_code = _new_code()
+    user.verify_code_expires = now + timedelta(minutes=settings.email_code_ttl_minutes)
+    user.verify_sent_at = now
+    await db.commit()
+    await asyncio.to_thread(send_verification_code, email, user.verify_code)
+    return {"status": "ok"}

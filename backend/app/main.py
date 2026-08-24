@@ -292,6 +292,19 @@ async def _init():
             "ADD COLUMN IF NOT EXISTS onboarding_dismissed BOOLEAN "
             "DEFAULT false NOT NULL"
         ))
+
+        # Email verification columns. email_verified DEFAULT true is
+        # intentional: every already-existing account is backfilled to
+        # verified so this never locks anyone out; only the self-signup
+        # register path writes false (and only the flag gates login).
+        await conn.execute(text(
+            "ALTER TABLE users "
+            "ADD COLUMN IF NOT EXISTS email_verified BOOLEAN DEFAULT true NOT NULL, "
+            "ADD COLUMN IF NOT EXISTS verify_code VARCHAR(12) DEFAULT '' NOT NULL, "
+            "ADD COLUMN IF NOT EXISTS verify_code_expires TIMESTAMPTZ, "
+            "ADD COLUMN IF NOT EXISTS verify_sent_at TIMESTAMPTZ"
+        ))
+
         await conn.execute(text(
             "CREATE INDEX IF NOT EXISTS ix_speakers_channel_id ON speakers (channel_id)"
         ))

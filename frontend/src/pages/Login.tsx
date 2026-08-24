@@ -62,7 +62,21 @@ function friendlySignupError(e: Error): string {
   return friendlyLoginError(e);
 }
 
-type Mode = "login" | "signup";
+/** Verify-code screen errors. */
+function friendlyVerifyError(e: Error): string {
+  const msg = e.message || "";
+  if (msg.startsWith("400")) {
+    if (msg.includes("过期")) return "验证码已过期，请点「重新发送」";
+    if (msg.includes("不正确")) return "验证码不正确";
+    if (msg.includes("先获取")) return "请先点「重新发送」获取验证码";
+    return "验证失败，请重试";
+  }
+  if (msg.startsWith("404")) return "该邮箱还没注册";
+  if (msg.startsWith("429")) return "尝试太频繁，稍后再试";
+  return friendlyLoginError(e);
+}
+
+type Mode = "login" | "signup" | "verify";
 
 export function Login() {
   const nav = useNavigate();
@@ -75,6 +89,10 @@ export function Login() {
   const [err, setErr] = useState("");
   const [loading, setLoading] = useState(false);
   const [cfg, setCfg] = useState<AuthConfig | null>(null);
+  // Email-verification step (only reached when the server requires it).
+  const [pendingEmail, setPendingEmail] = useState("");
+  const [code, setCode] = useState("");
+  const [resendMsg, setResendMsg] = useState("");
 
   // Whether signup is open and whether Google is available are server
   // facts — the same build ships to a deploy with neither.  Failure to
@@ -110,17 +128,59 @@ export function Login() {
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
     setErr("");
+    setResendMsg("");
     setLoading(true);
     try {
       if (mode === "signup") {
-        land(await api.register(email.trim(), password));
+        const r = await api.register(email.trim(), password);
+        if (r.needs_verification) {
+          // Server wants an emailed code before the account can be used.
+          setPendingEmail(r.email);
+          setCode("");
+          setMode("verify");
+        } else {
+          land(r);
+        }
+      } else if (mode === "verify") {
+        land(await api.verifyEmail(pendingEmail, code.trim()));
       } else {
         land(await api.login(username.trim(), password));
       }
     } catch (e) {
-      setErr(mode === "signup" ? friendlySignupError(e as Error) : friendlyLoginError(e as Error));
+      const msg = (e as Error).message || "";
+      // Logging in against an unverified account → jump to the code screen
+      // and (re)send a fresh code, rather than showing a dead-end error.
+      if (mode === "login" && msg.startsWith("403") && msg.includes("email_unverified")) {
+        const m = msg.match(/"email":"([^"]+)"/);
+        const em = m ? m[1] : username.trim();
+        setPendingEmail(em);
+        setCode("");
+        setMode("verify");
+        api.resendCode(em).catch(() => {});
+        setResendMsg("邮箱还没验证，已重新发送验证码，请查收");
+      } else {
+        setErr(
+          mode === "signup"
+            ? friendlySignupError(e as Error)
+            : mode === "verify"
+              ? friendlyVerifyError(e as Error)
+              : friendlyLoginError(e as Error),
+        );
+      }
     } finally {
       setLoading(false);
+    }
+  };
+
+  const resend = async () => {
+    setErr("");
+    setResendMsg("");
+    try {
+      await api.resendCode(pendingEmail);
+      setResendMsg("验证码已重新发送，请查收");
+    } catch (e) {
+      const msg = (e as Error).message || "";
+      setResendMsg(msg.startsWith("429") ? "发送太频繁，请 1 分钟后再试" : "发送失败，请稍后再试");
     }
   };
 
@@ -156,7 +216,7 @@ export function Login() {
         </div>
         <p className="text-ink-2 text-sm mb-6">只需要开口 · learn english by just speaking</p>
 
-        {signupOpen && (
+        {signupOpen && mode !== "verify" && (
           <div className="flex gap-1 p-1 mb-5 rounded-lg bg-[#eff2ef]">
             {(["login", "signup"] as Mode[]).map((m) => (
               <button
@@ -173,6 +233,27 @@ export function Login() {
           </div>
         )}
 
+        {mode === "verify" ? (
+          <div className="space-y-3">
+            <p className="text-sm text-ink-2 leading-relaxed">
+              验证码已发送到 <b className="text-ink break-all">{pendingEmail}</b>，请填入邮件里的 6 位验证码完成注册。
+            </p>
+            <div>
+              <label className="text-xs text-ink-2 mb-1 block">验证码</label>
+              <input
+                className="input text-center font-mono text-lg tracking-[0.5em]"
+                value={code}
+                onChange={(e) => setCode(e.target.value.replace(/\D/g, "").slice(0, 6))}
+                placeholder="______"
+                inputMode="numeric"
+                autoComplete="one-time-code"
+                maxLength={6}
+                required
+                autoFocus
+              />
+            </div>
+          </div>
+        ) : (
         <div className="space-y-3">
           {mode === "signup" ? (
             <div>
@@ -226,14 +307,35 @@ export function Login() {
             </div>
           </div>
         </div>
+        )}
 
+        {resendMsg && <div className="text-ink-3 text-xs mt-3">{resendMsg}</div>}
         {err && <div className="text-brand text-xs mt-3">{err}</div>}
 
-        <button type="submit" disabled={loading} className="btn-primary w-full mt-6">
-          {loading ? "…" : mode === "signup" ? "注册并开始" : "登录"}
+        <button
+          type="submit"
+          disabled={loading || (mode === "verify" && code.length < 6)}
+          className="btn-primary w-full mt-6"
+        >
+          {loading ? "…" : mode === "verify" ? "验证并进入" : mode === "signup" ? "注册并开始" : "登录"}
         </button>
 
-        {cfg?.google_client_id && (
+        {mode === "verify" && (
+          <div className="flex items-center justify-between text-xs mt-4">
+            <button type="button" onClick={resend} disabled={loading} className="text-ink-2 hover:text-ink">
+              没收到？重新发送
+            </button>
+            <button
+              type="button"
+              onClick={() => switchMode(signupOpen ? "signup" : "login")}
+              className="text-ink-3 hover:text-ink"
+            >
+              返回
+            </button>
+          </div>
+        )}
+
+        {cfg?.google_client_id && mode !== "verify" && (
           <>
             <div className="flex items-center gap-3 my-5">
               <div className="h-px flex-1 bg-[#eceef3]" />
@@ -248,7 +350,7 @@ export function Login() {
           </>
         )}
 
-        {signupOpen ? (
+        {mode !== "verify" && (signupOpen ? (
           <p className="text-xs text-ink-3 mt-6 text-center leading-relaxed">
             {mode === "signup"
               ? trialDays > 0
@@ -262,7 +364,7 @@ export function Login() {
             <br />
             按帖子说明联系我开通账号。
           </p>
-        )}
+        ))}
       </form>
     </div>
   );

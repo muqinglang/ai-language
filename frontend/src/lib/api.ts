@@ -16,6 +16,13 @@ export type TokenPayload = {
   };
 };
 
+/** register() returns a usable token when no verification is required, or a
+ *  {needs_verification, email} marker when a 6-digit email code must be
+ *  confirmed first (AUTH_REQUIRE_EMAIL_VERIFICATION on). */
+export type RegisterResult =
+  | ({ needs_verification: false } & TokenPayload)
+  | { needs_verification: true; email: string };
+
 function getToken(): string | null {
   return localStorage.getItem("justspeak_token");
 }
@@ -576,11 +583,25 @@ export const api = {
   /** What the login page needs before it renders: whether signup is open
    *  and whether to draw the Google button. Public, no token required. */
   authConfig: () => request<AuthConfig>("/auth/config"),
-  /** Self-serve signup. Username is derived from the email server-side. */
+  /** Self-serve signup. Username is derived from the email server-side.
+   *  Returns a token directly, OR {needs_verification:true, email} when a
+   *  6-digit email code is required (then call verifyEmail). */
   register: (email: string, password: string) =>
-    request<TokenPayload>("/auth/register", {
+    request<RegisterResult>("/auth/register", {
       method: "POST",
       body: JSON.stringify({ email, password }),
+    }),
+  /** Confirm the 6-digit signup code → logs the user in (returns a token). */
+  verifyEmail: (email: string, code: string) =>
+    request<TokenPayload>("/auth/verify-email", {
+      method: "POST",
+      body: JSON.stringify({ email, code }),
+    }),
+  /** Re-send the signup code (rate-limited server-side to once per minute). */
+  resendCode: (email: string) =>
+    request<{ status: string }>("/auth/resend-code", {
+      method: "POST",
+      body: JSON.stringify({ email }),
     }),
   /** `credential` is the ID token from Google Identity Services. */
   googleLogin: (credential: string) =>

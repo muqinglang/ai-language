@@ -50,6 +50,25 @@ class User(Base):
     onboarding_dismissed: Mapped[bool] = mapped_column(
         Boolean, default=False, server_default="false"
     )
+    # Email ownership verification (see routers/auth.py + services/email.py).
+    # server_default true is deliberate: the startup migration adds this column
+    # with DEFAULT true, so EVERY pre-existing account (and admin/demo, and
+    # admin-provisioned users) is grandfathered in as verified and never gets
+    # locked out. ONLY the self-signup register path sets this False, and even
+    # then the gate is enforced only when settings.auth_require_email_verification
+    # is on — so with the flag off (default) nothing changes.
+    email_verified: Mapped[bool] = mapped_column(
+        Boolean, default=True, server_default="true"
+    )
+    # Pending 6-digit signup code + its expiry. Cleared once verified.
+    verify_code: Mapped[str] = mapped_column(String(12), default="", server_default="")
+    verify_code_expires: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True, default=None
+    )
+    # Last time a code was emailed — used to rate-limit resend.
+    verify_sent_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True, default=None
+    )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now()
     )
