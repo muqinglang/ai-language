@@ -1,0 +1,32 @@
+fastapi==0.115.0
+uvicorn[standard]==0.32.0
+sqlalchemy==2.0.35
+psycopg[binary]==3.2.3
+asyncpg==0.29.0
+alembic==1.13.3
+pydantic==2.9.2
+pydantic-settings==2.6.0
+email-validator==2.2.0
+python-jose[cryptography]==3.3.0
+passlib==1.7.4
+bcrypt==4.0.1
+python-multipart==0.0.12
+httpx==0.27.2
+
+# Aliyun OSS — object storage for media on the mainland deploy. Lazily
+# imported in services/storage.py, so local dev without the SDK still boots
+# (storage falls back to the local /app/media volume served by nginx).
+oss2==2.18.6
+
+# Req 5 (scheduled creator imports): AsyncIOScheduler runs in-process on the
+# api event loop, fires cron-style triggers per ImportSchedule row.
+apscheduler==3.10.4
+
+# AI providers — optional; llm.py auto-falls-back to stub when key missing
+anthropic==0.37.1
+openai==1.52.0
+
+# Real pipeline — optional; pipeline.py gracefully falls back if not installed
+yt-dlp>=2025.1.15            # leave unpinned-ish so YouTube format changes don't break us
+faster-whisper==1.2.1        # CTranslate2 reimplementation; uses tiny.en model (~80MB)
+# openai-whisper==20240930   # alternative; needs torch (~2GB) — heavier but more accurate

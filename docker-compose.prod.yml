@@ -1,0 +1,49 @@
+# Production override for the mainland ECS deploy.
+#   docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d --build
+#
+# Differences from the local dev stack:
+#   * api built from the lean Dockerfile.server (no pipeline deps).
+#   * web built from Dockerfile.prod — 只 COPY 已构建好的 dist，不跑 Vite。
+#     前端由 GitHub Actions 构建后 scp 上来（deploy.yml）。
+#   * LLM pinned to DeepSeek (国内直连, no proxy needed); OpenAI/Anthropic hard-off.
+#   * TTS disabled → /api/tts 503 → frontend uses free browser Web Speech.
+#   * web binds host :80 (the ECS security group opens 80/443).
+#   * media stays on the local volume served by the web nginx (OSS+CDN later).
+services:
+  api:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile.server
+    environment:
+      # Hard kill-switch: even if other provider keys leak into env, only
+      # DeepSeek is ever called (services/llm.py _deepseek_only()).
+      LLM_PROVIDER: deepseek_only
+      # Free pronunciation: 503 on /api/tts → client falls back to Web Speech.
+      TTS_DISABLED: "true"
+      # No demo episodes in prod — they ship fake/non-playable videos that
+      # surface as "media could not be loaded". Real content arrives via
+      # the Mac→ECS bundle publish. seed.py still creates schema + categories
+      # + admin user when this is false.
+      SEED_DEMO: "false"
+    volumes:
+      # Baked code only (drop the dev source bind-mount); keep media volume.
+      - media:/app/media
+
+  web:
+    # 生产的前端**不在这台机器上构建**。Dockerfile.prod 只做一次 COPY，把
+    # GitHub Actions 构建好、scp 上来的 frontend/dist 装进 nginx。
+    # 在 2 核 1.6G 的 ECS 上跑 Vite 会把机器压垮 —— 见 frontend/Dockerfile.prod
+    # 顶部那段事故记录。所以这里的 --build 是安全的、也是廉价的。
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile.prod
+    # Bind to localhost only — the host's system nginx terminates TLS on
+    # 80/443 (certbot-managed) and reverse-proxies to this container. Keeps
+    # the docker web nginx (SPA + /api proxy + /media Range) as the app layer.
+    ports:
+      - "127.0.0.1:18080:80"
+    volumes:
+      # Mount nginx.conf so config tweaks (e.g. client_max_body_size for bundle
+      # uploads) take effect with a restart, no image rebuild.
+      - ./frontend/nginx.conf:/etc/nginx/conf.d/default.conf:ro
+      - media:/usr/share/nginx/media:ro

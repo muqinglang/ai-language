@@ -1,0 +1,120 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  html,
+  body {
+    @apply bg-[#f5f7f4] text-ink font-sans antialiased;
+    font-feature-settings: "cv11", "ss01";
+  }
+  /* Belt-and-suspenders against mobile horizontal scroll.
+     Mobile Safari can let a single misbehaving descendant create a
+     side-scroll on the body even when ancestors have width:100%.
+     Hard-cap at the document root so the whole page can never
+     side-scroll regardless of any future regression. Vertical scroll
+     is unaffected. */
+  html,
+  body {
+    overflow-x: hidden;
+    max-width: 100vw;
+  }
+}
+
+@layer utilities {
+  /* Hide the native horizontal scrollbar on the chapter / recommended-
+     segment strip. The fat gray track was visually heavy; scroll is
+     still possible via wheel / drag / the hover ‹ › arrows. */
+  .no-scrollbar {
+    -ms-overflow-style: none;
+    scrollbar-width: none;
+  }
+  .no-scrollbar::-webkit-scrollbar {
+    display: none;
+  }
+}
+
+@layer base {
+  /* 键盘焦点：全站兜底。
+     原来 focus-visible 全站 0 处，而 .input 还写着 outline-none —— 用
+     Tab 键操作的人完全看不到自己在哪。:focus-visible 只在键盘导航时出现，
+     鼠标点击不会有框，所以视觉上零成本。
+     写在 base 层是故意的：任何新加的按钮、链接、输入框自动就有，不需要
+     每处记得加。 */
+  :where(a, button, input, select, textarea, [tabindex]):focus-visible {
+    outline: 2px solid theme(colors.brand);
+    outline-offset: 2px;
+    border-radius: 4px;
+  }
+}
+
+@layer components {
+  .wm { @apply inline-flex items-baseline tracking-tight; }
+  .wm .just { @apply font-light; }
+  .wm .speak { @apply font-extrabold; }
+
+  /* simple shadcn-ish primitives */
+  /* active:scale-[.98] 是"按下去了"的物理反馈。267 个按钮里原来只有 13 个
+     有，其余按下去毫无反应 —— 在触屏上尤其明显，因为没有 hover 可依赖。
+     transition 用 150ms 而不是提案里的 700ms：按钮反馈慢一拍就像卡住。 */
+  .btn { @apply inline-flex items-center justify-center rounded-xl px-4 py-2 text-sm font-medium transition-[background-color,border-color,color,transform] duration-150 ease-spring active:scale-[.98] disabled:opacity-50 disabled:pointer-events-none disabled:active:scale-100; }
+  .btn-primary { @apply btn bg-brand text-white hover:bg-brand-strong; }
+  .btn-ghost   { @apply btn bg-white border border-line text-ink hover:border-ink; }
+  .btn-sub     { @apply btn bg-[#f0f3f0] text-ink hover:bg-[#e3e9e3]; }
+
+  /* outline-none 只对鼠标点击成立；键盘焦点由上面 base 层的
+     :focus-visible 接管，所以这里去掉它对无障碍的伤害。 */
+  .input { @apply w-full rounded-xl border border-line bg-[#f8faf8] px-4 py-2.5 text-sm outline-none focus:border-brand; }
+
+  .card { @apply rounded-xl border border-line bg-white; }
+
+  .chip { @apply inline-flex items-center gap-1.5 rounded-full border border-line bg-white px-3.5 py-1.5 text-xs font-medium text-ink cursor-pointer hover:border-ink transition-[background-color,border-color,color,transform] duration-150 ease-spring active:scale-[.98]; }
+  .chip-on { @apply bg-brand text-white border-brand hover:border-brand; }
+}
+
+/* ── 等待态里那只趴着的猫 ────────────────────────────────────────
+   components/LoadingCritter.tsx 用。写在这里而不是 Tailwind 里，是因为
+   这几段是多关键帧 + transform-origin 的编排，用 arbitrary value 表达出来
+   没人读得懂。
+
+   transform-box: fill-box 不能省 —— SVG 元素默认的 transform-origin 参照
+   整个 viewport 而不是元素自己的盒子，不设的话尾巴会绕着画布左上角转，
+   直接甩出画面。
+
+   动作很克制：呼吸 + 甩尾 + 偶尔抖一下耳朵。等待态的动画不该抢注意力，
+   它只需要证明"页面还活着"，而不是表演。 */
+@keyframes critter-breathe {
+  0%, 100% { transform: scaleY(1) scaleX(1); }
+  50%      { transform: scaleY(1.035) scaleX(.995); }
+}
+@keyframes critter-tail {
+  0%, 100% { transform: rotate(-9deg); }
+  50%      { transform: rotate(13deg); }
+}
+/* 大部分时间不动，偶尔抖一下。一直抖的耳朵是抽搐，不是可爱。 */
+@keyframes critter-ear {
+  0%, 78%, 100% { transform: rotate(0deg); }
+  84%           { transform: rotate(-11deg); }
+  90%           { transform: rotate(0deg); }
+}
+/* 三个点，给"还在动"一个第二信号。万一动画被系统禁掉，它也一起停 ——
+   那是对的，不该留一个还在闪的东西。 */
+@keyframes critter-dot {
+  0%, 100% { opacity: .22; transform: translateY(0); }
+  50%      { opacity: .85; transform: translateY(-2px); }
+}
+
+.critter-breathe { animation: critter-breathe 3.2s ease-in-out infinite;
+                   transform-box: fill-box; transform-origin: 50% 100%; }
+.critter-tail    { animation: critter-tail 2.4s ease-in-out infinite;
+                   transform-box: fill-box; transform-origin: 4% 92%; }
+.critter-ear     { animation: critter-ear 5.5s ease-in-out infinite;
+                   transform-box: fill-box; transform-origin: 50% 100%; }
+.critter-dot     { animation: critter-dot 1.5s ease-in-out infinite;
+                   transform-box: fill-box; transform-origin: center; }
+
+/* 动效敏感的人不该被一个一直动的东西盯着。全停 —— 静止的那一帧本身就是
+   一张完整的插画，所以不需要另外准备静态版。 */
+@media (prefers-reduced-motion: reduce) {
+  .critter-breathe, .critter-tail, .critter-ear, .critter-dot { animation: none; }
+}

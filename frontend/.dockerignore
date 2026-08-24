@@ -1,0 +1,9 @@
+node_modules
+# dist 不能忽略：生产镜像（Dockerfile.prod）就是靠 COPY dist 装进 nginx 的。
+# 开发那份 Dockerfile 会先 COPY . . 再 npm run build，把它一起带进去只是
+# 多传几 MB，构建时又会被覆盖，没有副作用。
+.vite
+.env
+.env.local
+npm-debug.log
+.git

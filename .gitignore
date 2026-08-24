@@ -1,0 +1,31 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+.pytest_cache/
+backend/media/
+backend/.env
+.env
+
+# Node
+node_modules/
+dist/
+.vite/
+*.local
+# TS/Vite build artifacts — we never commit emitted JS siblings to
+# TSX sources, and the incremental build info is machine-specific.
+frontend/src/**/*.js
+frontend/tsconfig.tsbuildinfo
+
+# IDE
+.vscode/
+.idea/
+.DS_Store
+
+# Local artifacts
+.gstack/
+
+# Local design mockups, never deployed
+.mockups/

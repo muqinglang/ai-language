@@ -1,0 +1,20 @@
+# 生产镜像：只把**已经构建好的** dist 装进 nginx，这里不跑 Vite。
+#
+# 为什么单独一份：ECS 是 2 核 1.6G，在上面跑 Vite 构建会把整台机器压垮。
+# 2026-08-23 发生过一次 —— 构建把内存吃光，sshd 被饿到连 fork 都做不到，
+# 构建自己也没跑完，`set -e` 在那里中断，于是 api 那一步压根没执行。最后
+# 的结果是最难查的那种："git 到位了，但一行代码都没生效"，而站点还在
+# 正常返回 200。
+#
+# 现在前端在 GitHub Actions 的 runner 上构建，ECS 只做一次 COPY。
+#
+# dist 不在 git 里，由 deploy.yml scp 上来。缺了就在下面这行 COPY 失败 ——
+# 构建当场炸掉，比悄悄发一个空站好。
+FROM nginx:1.27-alpine
+COPY nginx.conf /etc/nginx/conf.d/default.conf
+COPY dist /usr/share/nginx/html
+
+EXPOSE 80
+# 127.0.0.1 而不是 localhost，理由同 frontend/Dockerfile。
+HEALTHCHECK --interval=10s --timeout=3s --retries=5 \
+    CMD wget -qO- http://127.0.0.1/ > /dev/null || exit 1

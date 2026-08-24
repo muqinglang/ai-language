@@ -1,0 +1,25 @@
+# Server-role deps — for the mainland ECS that SERVES the app but does NOT
+# run the import pipeline (yt-dlp/whisper run on the local Mac instead).
+# Drops yt-dlp, faster-whisper (heavy, unused here) and anthropic (the deploy
+# pins LLM_PROVIDER=deepseek_only, so the anthropic client is never imported).
+# Keeps openai because DeepSeek speaks the OpenAI Chat Completions dialect via
+# the openai SDK (see services/llm.py _deepseek_client).
+fastapi==0.115.0
+uvicorn[standard]==0.32.0
+sqlalchemy==2.0.35
+psycopg[binary]==3.2.3
+asyncpg==0.29.0
+alembic==1.13.3
+pydantic==2.9.2
+pydantic-settings==2.6.0
+email-validator==2.2.0
+python-jose[cryptography]==3.3.0
+passlib==1.7.4
+bcrypt==4.0.1
+python-multipart==0.0.12
+httpx==0.27.2
+apscheduler==3.10.4
+openai==1.52.0
+
+# Aliyun OSS — media object storage (wired in a later step; harmless to ship now).
+oss2==2.18.6

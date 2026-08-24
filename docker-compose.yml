@@ -1,0 +1,120 @@
+services:
+  db:
+    image: postgres:16-alpine
+    container_name: justspeak-db
+    environment:
+      POSTGRES_USER: admin
+      # Prod sets POSTGRES_PASSWORD in /opt/justspeak/.env. The default is
+      # the old dev password so an existing local pgdata keeps working with
+      # no .env change — but note it is ONLY used at initdb: changing this
+      # value never changes the password of a database that already exists.
+      # Rotating a live one takes `ALTER USER admin WITH PASSWORD '...'`.
+      # Keep it alphanumeric: it goes into DATABASE_URL, where '@' ':' '/'
+      # would need percent-encoding.
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-justspeak_dev}
+      POSTGRES_DB: justspeak
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    ports:
+      # Loopback only. Compose MERGES `ports` across -f files instead of
+      # replacing them, so anything published here is published in prod too:
+      # a bare "5432:5432" put Postgres on 0.0.0.0 of a public-IP ECS with
+      # the password that is sitting in this very file. `psql -h localhost`
+      # still works for dev.
+      - "127.0.0.1:5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U admin -d justspeak"]
+      interval: 3s
+      timeout: 3s
+      retries: 10
+    restart: unless-stopped
+
+  api:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: justspeak-api
+    environment:
+      DATABASE_URL: postgresql+asyncpg://admin:${POSTGRES_PASSWORD:-justspeak_dev}@db:5432/justspeak
+      JWT_SECRET: ${JWT_SECRET:-dev-secret-change-me-in-prod}
+      JWT_ALGORITHM: HS256
+      JWT_EXPIRE_MINUTES: 10080
+      # Demo seed: true generates fake RGB-bars sample episodes on startup
+      # (local dev convenience). Set SEED_DEMO=false in .env for no fake content.
+      SEED_DEMO: ${SEED_DEMO:-true}
+      # LLM providers — set these in .env at the project root, or via shell export
+      DEEPSEEK_API_KEY: ${DEEPSEEK_API_KEY:-}
+      DEEPSEEK_BASE_URL: ${DEEPSEEK_BASE_URL:-https://api.deepseek.com}
+      DEEPSEEK_MODEL: ${DEEPSEEK_MODEL:-deepseek-v4-pro}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      OPENAI_MODEL: ${OPENAI_MODEL:-gpt-4o-mini}
+      # Self-serve signup: new accounts get AUTH_NEW_USER_TRIAL_DAYS of
+      # access (0 = permanent). Set AUTH_SELF_SIGNUP=false to go back to
+      # invite-only. GOOGLE_CLIENT_ID enables the Google button; leave it
+      # empty where the server can't reach Google (e.g. the mainland ECS).
+      AUTH_SELF_SIGNUP: ${AUTH_SELF_SIGNUP:-true}
+      AUTH_NEW_USER_TRIAL_DAYS: ${AUTH_NEW_USER_TRIAL_DAYS:-7}
+      GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:-}
+      # Encrypts learner-supplied third-party API keys at rest. Unset →
+      # the "bring your own key" feature is off and /api/me/llm 503s,
+      # rather than storing spendable credentials in plaintext.
+      CREDENTIAL_ENC_KEY: ${CREDENTIAL_ENC_KEY:-}
+      # ElevenLabs TTS — used by POST /api/tts.  If key is unset the
+      # endpoint returns 503 and the frontend falls back to Web Speech.
+      ELEVENLABS_API_KEY: ${ELEVENLABS_API_KEY:-}
+      # Multi-key chain for headroom across stacked free-tier accounts.
+      # Plural form wins when set; singular ELEVENLABS_API_KEY above is
+      # used as fallback (see backend/app/services/tts.py _all_keys()).
+      ELEVENLABS_API_KEYS: ${ELEVENLABS_API_KEYS:-}
+      ELEVENLABS_VOICE_ID: ${ELEVENLABS_VOICE_ID:-21m00Tcm4TlvDq8ikWAM}
+      ELEVENLABS_MODEL: ${ELEVENLABS_MODEL:-eleven_turbo_v2_5}
+      # Optional: route yt-dlp + outbound HTTP through your Mac's Clash/Surge proxy
+      # so YouTube downloads use your VPN bandwidth instead of Docker NAT.
+      # Set HTTP_PROXY in .env to e.g. http://host.docker.internal:7890
+      HTTP_PROXY: ${HTTP_PROXY:-}
+      HTTPS_PROXY: ${HTTPS_PROXY:-}
+      NO_PROXY: ${NO_PROXY:-localhost,127.0.0.1,db,api}
+      # One-click "推送生产": local admin → remote ECS bundle publish. Set in
+      # the LOCAL .env only (holds the prod admin password). Empty on the ECS
+      # → the push button stays hidden there.
+      PUBLISH_TARGET_API: ${PUBLISH_TARGET_API:-}
+      PUBLISH_TARGET_USER: ${PUBLISH_TARGET_USER:-}
+      PUBLISH_TARGET_PASSWORD: ${PUBLISH_TARGET_PASSWORD:-}
+    extra_hosts:
+      # Lets the api container reach services on your host (e.g. an LLM proxy).
+      - "host.docker.internal:host-gateway"
+    volumes:
+      - media:/app/media                # yt-dlp downloads persist across rebuilds
+      - ./backend/app:/app/app:ro       # bind-mount source so code changes need only `restart api`
+    depends_on:
+      db:
+        condition: service_healthy
+    ports:
+      # Loopback only, same reason as db. The web container proxies /api
+      # over the docker network (api:8000), so nothing outside the host
+      # ever needed this — on ECS it was an unauthenticated, TLS-less copy
+      # of the whole API sitting next to the HTTPS one.
+      - "127.0.0.1:8000:8000"
+    restart: unless-stopped
+
+  web:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: justspeak-web
+    depends_on:
+      api:
+        condition: service_healthy
+    ports:
+      # Loopback only. In prod the host nginx terminates TLS and proxies to
+      # the 127.0.0.1:18080 mapping added by docker-compose.prod.yml; this
+      # one is the dev entry point (http://localhost:8080).
+      - "127.0.0.1:8080:80"
+    volumes:
+      - media:/usr/share/nginx/media:ro   # serve video files directly, with Range support
+    restart: unless-stopped
+
+volumes:
+  pgdata:
+  media:
