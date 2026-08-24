@@ -1,8 +1,9 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { ArrowSquareOut, Check, CircleNotch, Key, Plug, ShieldCheck, SpeakerHigh, Trash, WarningCircle } from "@phosphor-icons/react";
+import { ArrowSquareOut, BookOpen, Check, CircleNotch, Key, Plug, ShieldCheck, SpeakerHigh, Trash, WarningCircle } from "@phosphor-icons/react";
 import { useEffect, useState } from "react";
 import { api, errorDetail } from "@/lib/api";
 import type { LLMSettings } from "@/lib/api";
+import { KeyGuideModal } from "@/components/KeyGuideModal";
 
 /**
  * 我的 API key — 让学员把 AI 对话指到自己的 provider（BYOK）。
@@ -30,6 +31,7 @@ export function LLMKeySettings() {
   const [busy, setBusy] = useState<"save" | "test" | "delete" | null>(null);
   const [error, setError] = useState("");
   const [okMsg, setOkMsg] = useState("");
+  const [guideOpen, setGuideOpen] = useState(false);
 
   // 表单字段
   const [provider, setProvider] = useState("openai");
@@ -215,6 +217,14 @@ export function LLMKeySettings() {
             )}
           </label>
 
+          <button
+            type="button"
+            onClick={() => setGuideOpen(true)}
+            className="inline-flex items-center gap-1 text-xs text-brand hover:underline"
+          >
+            <BookOpen size={13} /> 如何获取 key?（带截图分步）
+          </button>
+
           {/* 挑模型是这个表单里最容易踩坑的一步 —— deepseek-v4-flash 会返回空
               内容，看起来跟"key 是坏的"一模一样。所以把每个模型的说明摆在选项
               旁边，而不是塞进一个没人会打开的文档。 */}
@@ -342,6 +352,12 @@ export function LLMKeySettings() {
         </div>
       )}
 
+      <KeyGuideModal
+        open={guideOpen}
+        onClose={() => setGuideOpen(false)}
+        provider={provider}
+        url={meta?.key_url}
+      />
     </div>
   );
 }

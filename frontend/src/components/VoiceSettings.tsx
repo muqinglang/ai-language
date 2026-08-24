@@ -1,5 +1,5 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { Check, CircleNotch, SpeakerHigh, Square, WarningCircle } from "@phosphor-icons/react";
+import { BookOpen, Check, CircleNotch, SpeakerHigh, Square, WarningCircle } from "@phosphor-icons/react";
 import { useEffect, useRef, useState } from "react";
 import { api, errorDetail } from "@/lib/api";
 import type { LLMSettings } from "@/lib/api";
@@ -10,6 +10,7 @@ import {
   setPreferredVoiceId,
 } from "@/lib/voices";
 import { setOwnVoiceConfigured } from "@/lib/speak";
+import { KeyGuideModal } from "@/components/KeyGuideModal";
 
 /**
  * AI 朗读声音 —— key 和音色在同一张卡里。
@@ -303,6 +304,7 @@ function TTSKeyRow({ data }: { data: LLMSettings }) {
   const [busy, setBusy] = useState<"save" | "test" | "delete" | null>(null);
   const [error, setError] = useState("");
   const [okMsg, setOkMsg] = useState("");
+  const [guideOpen, setGuideOpen] = useState(false);
 
   const apply = (next: LLMSettings) => qc.setQueryData(["me-llm"], next);
   const run = async (
@@ -399,6 +401,13 @@ function TTSKeyRow({ data }: { data: LLMSettings }) {
               <span className="block text-2xs text-ink-3 mt-1.5">{meta.hint}</span>
             )}
           </label>
+          <button
+            type="button"
+            onClick={() => setGuideOpen(true)}
+            className="inline-flex items-center gap-1 text-xs text-brand hover:underline"
+          >
+            <BookOpen size={13} /> 如何获取 key?（带截图分步）
+          </button>
           <label className="block">
             <span className="text-2xs text-ink-3 font-medium">
               {meta?.label ?? ""} API key
@@ -535,6 +544,13 @@ function TTSKeyRow({ data }: { data: LLMSettings }) {
           <SpeakerHigh size={14} /> 配一个更自然的朗读声音
         </button>
       )}
+
+      <KeyGuideModal
+        open={guideOpen}
+        onClose={() => setGuideOpen(false)}
+        provider={provider}
+        url={meta?.key_url}
+      />
     </div>
   );
 }
