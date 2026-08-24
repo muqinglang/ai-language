@@ -20,7 +20,9 @@ class Settings(BaseSettings):
     # Only applies to accounts created BY signup; existing users and
     # admin-provisioned ones are untouched, and signing in again never
     # re-stamps an existing account's expiry.
-    auth_new_user_trial_days: int = 7
+    # Default 0 = new signups are permanent. Set AUTH_NEW_USER_TRIAL_DAYS=N
+    # to hand out N-day trials instead.
+    auth_new_user_trial_days: int = 0
 
     # Google Sign-In (Google Identity Services).  The frontend renders
     # the Google button only when this is set, and posts the resulting

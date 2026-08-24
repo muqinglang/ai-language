@@ -54,7 +54,7 @@ services:
       # invite-only. GOOGLE_CLIENT_ID enables the Google button; leave it
       # empty where the server can't reach Google (e.g. the mainland ECS).
       AUTH_SELF_SIGNUP: ${AUTH_SELF_SIGNUP:-true}
-      AUTH_NEW_USER_TRIAL_DAYS: ${AUTH_NEW_USER_TRIAL_DAYS:-7}
+      AUTH_NEW_USER_TRIAL_DAYS: ${AUTH_NEW_USER_TRIAL_DAYS:-0}
       GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:-}
       # Encrypts learner-supplied third-party API keys at rest. Unset →
       # the "bring your own key" feature is off and /api/me/llm 503s,
