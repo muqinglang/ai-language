@@ -1,13 +1,19 @@
 # Deployment & usage
 
-Three ways to run justSpeak, from easiest to most involved:
+Ways to run justSpeak, from easiest to most involved:
 
 1. [Local development](#1-local-development-hot-reload) (hot reload)
-2. [Self-host on one VPS](#2-self-host-on-one-vps-recommended) with Docker Compose + HTTPS **(recommended)**
-3. [Split: frontend on Vercel + backend on a VPS](#3-split-frontend-on-vercel--backend-elsewhere)
+2. [Self-host on one VPS](#2-self-host-on-one-vps-recommended) with Docker Compose + HTTPS **(recommended, truly `git clone` + one command)**
+3. [Railway (backend) + Vercel (frontend)](#3-railway-backend--vercel-frontend) — managed, no server to babysit
+4. [Hand the repo to an AI agent (Claude Code / Codex)](#4-hand-the-repo-to-an-ai-agent-claude-code--codex) to do it for you
 
 > **Can I put the whole thing on Vercel?** No. The frontend can, but the backend
 > cannot — see [Why the backend doesn't fit Vercel](#why-the-backend-doesnt-fit-vercel).
+>
+> **Where do the videos live?** On disk. The compose stack keeps them in a Docker
+> `media` volume; on Railway you mount a **persistent Volume** at `/app/media`. Vercel
+> (serverless, ephemeral disk) **cannot** store them — that's why the backend never runs
+> on Vercel.
 
 ---
 
@@ -135,37 +141,67 @@ docker compose down -v
 
 ---
 
-## 3. Split: frontend on Vercel + backend elsewhere
+## 3. Railway (backend) + Vercel (frontend)
 
-The React frontend is a static Vite build and deploys to Vercel cleanly. The backend
-still has to live on a Docker-capable host (VPS from §2, or Railway / Render / Fly.io)
-with a Postgres (managed options: Neon, Supabase, Railway PG).
+Managed hosting, nothing to SSH into. **Railway** runs the backend container + Postgres
++ a persistent Volume for videos; **Vercel** serves the static frontend. The backend's
+`docker-entrypoint.sh` waits for the DB, seeds it (creating the admin user), and starts
+uvicorn — so once the env vars are right it comes up on its own.
 
-### Frontend on Vercel
+### 3a. Backend + database + video storage on Railway
 
-1. Import the repo in Vercel, set **Root Directory** = `frontend`.
-2. Build command `npm run build`, output dir `dist` (Vite defaults; Vercel detects it).
-3. The frontend talks to the API at `/api/*`. On Vercel there is no backend to proxy to,
-   so route `/api/*` to your backend. Add `frontend/vercel.json`:
+1. **New Project → Deploy from GitHub repo** (your fork).
+2. In the service **Settings → Build**: set **Root Directory** = `backend` (Railway then
+   uses `backend/Dockerfile` automatically). **Networking**: the app listens on **8000** —
+   generate a public domain and set the target port to `8000`.
+3. **Add PostgreSQL**: in the project, **New → Database → PostgreSQL**.
+4. **Wire the database URL** — the app uses the async driver, so build the URL from
+   Railway's Postgres reference variables. In the backend service **Variables**, add:
+
+   ```
+   DATABASE_URL=postgresql+asyncpg://${{Postgres.PGUSER}}:${{Postgres.PGPASSWORD}}@${{Postgres.PGHOST}}:${{Postgres.PGPORT}}/${{Postgres.PGDATABASE}}
+   ```
+
+   (Note the `+asyncpg` — Railway's default `DATABASE_URL` lacks it and won't work.)
+5. **Add a Volume** for videos: attach a Volume with **Mount path `/app/media`**. This is
+   where yt-dlp downloads, thumbnails and the TTS cache live; without it they vanish on
+   every redeploy. Size it generously — clips are large (a collection can be ~1 GB).
+6. **Set the rest of the env** (see `.env.example` / [Environment reference](#environment-reference)):
+   `JWT_SECRET`, `ADMIN_PASSWORD` (or read the generated one from the deploy logs),
+   `CREDENTIAL_ENC_KEY`, `SEED_DEMO=false`, and any LLM/TTS keys you want.
+7. Deploy. Grab the public URL, e.g. `https://your-app.up.railway.app`.
+
+### 3b. Frontend on Vercel
+
+1. **Import the repo**, set **Root Directory** = `frontend` (Vercel detects Vite: build
+   `npm run build`, output `dist`).
+2. The frontend calls `/api/*` and `/media/*` relative — point both at the Railway
+   backend by committing **`frontend/vercel.json`**:
 
    ```json
    {
      "rewrites": [
-       { "source": "/api/:path*", "destination": "https://api.your-domain.example/api/:path*" }
+       { "source": "/api/:path*",   "destination": "https://your-app.up.railway.app/api/:path*" },
+       { "source": "/media/:path*", "destination": "https://your-app.up.railway.app/media/:path*" }
      ]
    }
    ```
 
-   (Or point the frontend at an absolute API base URL and enable CORS on the backend.)
-4. Media files (`/media/*`) and SSE streaming are served by the backend — make sure your
-   backend host allows long-lived responses and range requests.
+   Replace the host with your Railway domain. Deploy — done.
 
-### Backend on Railway / Render / Fly.io
+### 3c. Caveats on the managed path
 
-- Deploy `backend/` via its `Dockerfile` (full) or `Dockerfile.server` (serve-only).
-- Attach a managed Postgres and set `DATABASE_URL` accordingly.
-- Set the same secrets as `.env` (`JWT_SECRET`, `CREDENTIAL_ENC_KEY`, LLM/TTS keys…).
-- Persistent disk for `/app/media` if you import/store video on that host.
+- **Video seeking**: on the Railway-only backend, video is served by FastAPI's static
+  files, which don't fully honour HTTP Range — playback works, scrubbing/seek can be
+  flaky. For proper seeking keep the compose stack's nginx layer (§2) or front `/media`
+  with a CDN.
+- **Heavy imports**: yt-dlp + whisper transcription is CPU-heavy and slow on small
+  Railway instances. Either size up, or import on your laptop and publish the finished
+  bundle to the server (the app has a publish path). Data-centre IPs also get anti-bot
+  challenged by YouTube — cookies/proxy may be needed.
+- **Scaling storage**: a Railway Volume is fine for personal/small use. At scale, move
+  media to object storage (Cloudflare R2 / S3 / OSS) + CDN — that integration is **not
+  wired in the current code** and would need adding.
 
 ### Why the backend doesn't fit Vercel
 
@@ -177,9 +213,36 @@ Vercel runs **serverless functions**, which are the wrong shape for this backend
 | Persistent disk for `/app/media`, tts cache, whisper models | Ephemeral filesystem, wiped per invocation |
 | A bundled PostgreSQL | None — you'd need an external DB anyway |
 | Long-lived SSE streams + video Range serving | Awkward / limited under serverless |
-| A always-on process (import tasks, connection pool) | Cold-started, stateless functions |
+| An always-on process (import tasks, connection pool) | Cold-started, stateless functions |
 
-So: **frontend → Vercel is fine; backend → a real container host.**
+So: **frontend → Vercel is fine; backend → a real container host (Railway/VPS).**
+
+---
+
+## 4. Hand the repo to an AI agent (Claude Code / Codex)
+
+If you'd rather not click through dashboards, clone the repo and let a coding agent drive
+the deploy. Open the repo folder in **Claude Code** (or Codex / Cursor) and paste a prompt
+like this:
+
+```
+This repo is a self-hostable FastAPI + React + PostgreSQL app (see README.md and DEPLOY.md).
+Deploy it for me:
+- Read DEPLOY.md and pick the simplest working option for my setup.
+- Target: <"a VPS I have at 1.2.3.4 over SSH"  OR  "Railway backend + Vercel frontend">.
+- Generate strong secrets (JWT_SECRET, CREDENTIAL_ENC_KEY, POSTGRES_PASSWORD), write the
+  .env, and set SEED_DEMO=false.
+- Bring the stack up, run the DB seed, and tell me the admin username + the generated
+  admin password from the logs.
+- Make sure videos persist (Docker media volume, or a Railway Volume at /app/media).
+- Give me the final URL and a one-paragraph summary of what you did.
+Ask me for any secret/API key you need; don't invent placeholder values.
+```
+
+The agent has everything it needs in this repo: `docker-compose.yml`, `backend/Dockerfile`,
+`docker-entrypoint.sh` (waits for DB → seeds → starts uvicorn), `.env.example`, and this
+guide. For a VPS it will typically `git clone`, write `.env`, and run `docker compose up -d`;
+for Railway/Vercel it will follow §3.
 
 ---
 

@@ -1,5 +1,7 @@
 # justSpeak · 只需要开口
 
+**English** · [中文](README.zh.md)
+
 > Learn spoken English by watching real YouTube clips, then practising with an AI tutor.
 > 用真实 YouTube 语料 + Chunk 表达 + AI 场景对话,帮中文母语者开口说英语。
 
@@ -74,8 +76,20 @@ The app runs with **zero API keys** — LLM and TTS features degrade gracefully 
 Web Speech). Add keys in `.env` to enable server-side AI. See [docs/](docs/) for how each
 subsystem works.
 
-**Local development (hot reload)** and **production deployment (VPS + HTTPS, or frontend
-on Vercel)** are covered in **[DEPLOY.md](DEPLOY.md)**.
+---
+
+## Deployment
+
+Full step-by-step guide in **[DEPLOY.md](DEPLOY.md)**. Pick one:
+
+| Option | What runs where | Best for |
+|---|---|---|
+| **VPS + Docker Compose** (recommended) | everything on one server; `git clone` + `docker compose up -d`; Caddy for HTTPS | simplest, videos work fully (nginx Range) |
+| **Railway + Vercel** | backend + Postgres + a Volume for videos on Railway; static frontend on Vercel | managed, no server to babysit |
+| **Hand it to an AI agent** | Claude Code / Codex reads DEPLOY.md and deploys it for you | zero manual steps — paste the prompt in DEPLOY.md §4 |
+
+> **Videos are stored on disk** (a Docker `media` volume, or a Railway Volume mounted at
+> `/app/media`). Vercel alone can't host the backend or store video — see DEPLOY.md.
 
 ---
 
