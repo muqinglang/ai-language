@@ -594,6 +594,13 @@ export const api = {
       method: "POST",
       body: JSON.stringify({ username, password }),
     }),
+  /** Logged-in user changes their own password. Verifies the old one
+   *  server-side; returns 204. The settings page is the only caller. */
+  changePassword: (old_password: string, new_password: string) =>
+    request<void>("/auth/change-password", {
+      method: "POST",
+      body: JSON.stringify({ old_password, new_password }),
+    }),
 
   // episodes
   categories: () => request<Category[]>("/episodes/categories"),

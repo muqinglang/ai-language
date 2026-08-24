@@ -1,11 +1,12 @@
 import re
 from datetime import datetime, timedelta, timezone
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Response
+from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from ..auth import create_token, hash_password, verify_password
+from ..auth import create_token, current_user, hash_password, verify_password
 from ..config import settings
 from ..db import get_db
 from ..models import User
@@ -206,3 +207,35 @@ async def login(body: UserLogin, db: AsyncSession = Depends(get_db)) -> TokenOut
     if _is_expired(user):
         raise HTTPException(403, detail=_expired_detail(user))
     return TokenOut(access_token=create_token(user.id, user.role), user=UserOut.model_validate(user))
+
+
+class ChangePasswordIn(BaseModel):
+    old_password: str
+    new_password: str
+
+
+@router.post("/change-password", status_code=204)
+async def change_password(
+    body: ChangePasswordIn,
+    user: User = Depends(current_user),
+    db: AsyncSession = Depends(get_db),
+) -> Response:
+    """A logged-in user changes their OWN password.
+
+    This is the ONLY self-serve password entry point — the settings page
+    ("我的 → 设置") uses it. Requires the current password on purpose: a
+    hijacked session alone should not be able to lock the real owner out.
+    Google-only accounts (empty password_hash) have nothing to change.
+    """
+    if not user.password_hash:
+        raise HTTPException(400, "该账号通过 Google 登录，没有可修改的密码")
+    if not verify_password(body.old_password, user.password_hash):
+        raise HTTPException(400, "当前密码不正确")
+    new = body.new_password.strip()
+    if len(new) < 6:
+        raise HTTPException(400, "新密码至少 6 位")
+    if verify_password(new, user.password_hash):
+        raise HTTPException(400, "新密码不能和当前密码相同")
+    user.password_hash = hash_password(new)
+    await db.commit()
+    return Response(status_code=204)

@@ -3,6 +3,7 @@ import { BookOpen, Cards, CaretRight, ChatCircle, Fire, GraduationCap, Lock, Med
 import type { Icon as PhosphorIcon } from "@phosphor-icons/react";
 import { useState } from "react";
 import { Link } from "react-router-dom";
+import { ChangePasswordSettings } from "@/components/ChangePasswordSettings";
 import { LLMKeySettings } from "@/components/LLMKeySettings";
 import { VoiceSettings } from "@/components/VoiceSettings";
 import { Shell } from "@/components/Shell";
@@ -188,6 +189,8 @@ export function Me() {
 
       {tab === "settings" && (
         <>
+          {/* 改密码 —— 全站唯一入口，任何登录用户改自己的密码。 */}
+          <ChangePasswordSettings />
           {/* BYOK — 学员可以把 AI 对话指到自己的 key；服务端没配
               CREDENTIAL_ENC_KEY 时组件自己不渲染。 */}
           <LLMKeySettings />
