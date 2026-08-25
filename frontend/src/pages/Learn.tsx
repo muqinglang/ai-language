@@ -1037,6 +1037,7 @@ type SR = {
   stop: () => void;
   abort: () => void;
   onresult: ((e: { resultIndex: number; results: ArrayLike<ArrayLike<{ transcript: string }> & { isFinal: boolean }> }) => void) | null;
+  onstart: (() => void) | null;
   onend: (() => void) | null;
   onerror: ((e: { error: string }) => void) | null;
 };
@@ -1048,6 +1049,24 @@ function getSpeechRecognition(): (new () => SR) | null {
     webkitSpeechRecognition?: new () => SR;
   };
   return w.SpeechRecognition || w.webkitSpeechRecognition || null;
+}
+
+// iOS 把网站「添加到主屏」后是 standalone 模式，WebKit 的 SpeechRecognition
+// 在这个模式下有长期缺陷：start() 后既不报错、也不触发任何事件，录音状态
+// 就此卡死、整个面板点不动（Safari 普通标签页里却正常）。所以这个环境里
+// 干脆不碰它，提示用户去 Safari 或直接打字。Android 的 standalone PWA 不受
+// 影响，所以只挡 iOS。
+function isIOSStandalone(): boolean {
+  if (typeof navigator === "undefined") return false;
+  const nav = navigator as unknown as { userAgent?: string; platform?: string; maxTouchPoints?: number; standalone?: boolean };
+  const ua = nav.userAgent || "";
+  const isIOS =
+    /iP(hone|ad|od)/.test(ua) ||
+    (nav.platform === "MacIntel" && (nav.maxTouchPoints || 0) > 1); // iPadOS 伪装成 Mac
+  const standalone =
+    nav.standalone === true ||
+    (typeof matchMedia !== "undefined" && matchMedia("(display-mode: standalone)").matches);
+  return isIOS && standalone;
 }
 
 // Tokenise a plain text blob into clickable <span> words.  Used for AI
@@ -1439,7 +1458,7 @@ function AITab({
   const [listening, setListening] = useState(false);
   // 浏览器不支持语音识别。原来用 alert() 说这件事 —— 它阻塞整个页面，
   // 而且弹在屏幕顶部，跟用户刚点的那个麦克风按钮完全脱节。改成就地提示。
-  const [sttUnsupported, setSttUnsupported] = useState(false);
+  const [sttMsg, setSttMsg] = useState("");
   const [autoSpeak, setAutoSpeak] = useState(() => {
     try {
       return localStorage.getItem("ai-autospeak") !== "0";
@@ -1749,11 +1768,16 @@ function AITab({
     // audio AND the learner can focus on their own voice.  Also kill
     // any AI-bubble TTS still playing so it doesn't leak into the
     // recording.
+    // iOS 主屏 App 里语音识别会挂死整块面板 —— 直接挡掉,给可操作的提示。
+    if (isIOSStandalone()) {
+      setSttMsg("iOS 把网站装成 App 后不支持语音输入。请在 Safari 里打开网页版用语音，或直接打字。");
+      return;
+    }
     interact();
     stopSpeaking();
     const Ctor = getSpeechRecognition();
     if (!Ctor) {
-      setSttUnsupported(true);
+      setSttMsg("这个浏览器不支持语音识别，换 Chrome 或 Edge 就能用。你也可以直接打字。");
       return;
     }
     const rec = new Ctor();
@@ -1784,13 +1808,27 @@ function AITab({
       setListening(false);
       recognitionRef.current = null;
     };
+    let started = false;
+    rec.onstart = () => { started = true; };
     recognitionRef.current = rec;
     setListening(true);
     try {
       rec.start();
     } catch {
       setListening(false);
+      recognitionRef.current = null;
+      return;
     }
+    // 看门狗：有些 webview 里 start() 不报错、也不真正启动（onstart 永不触发），
+    // 录音状态会一直卡着。4 秒没启动就自动收场，别让用户对着假「录音中」发呆。
+    window.setTimeout(() => {
+      if (!started && recognitionRef.current === rec) {
+        try { rec.abort(); } catch { /* ignore */ }
+        recognitionRef.current = null;
+        setListening(false);
+        setSttMsg("这个环境启动不了语音识别，直接打字吧（或到 Safari 里试）。");
+      }
+    }, 4000);
   }
 
   if (!convo) {
@@ -2161,13 +2199,13 @@ function AITab({
 
       {/* 就地告诉用户为什么麦克风没反应，而不是弹一个系统对话框。
           可关闭 —— 知道了就不用一直占着屏幕。 */}
-      {sttUnsupported && (
+      {sttMsg && (
         <div className="shrink-0 mt-2 flex items-start gap-2 px-3 py-2 rounded-lg bg-[#fff7ed] border border-[#fed7aa] text-xs text-[#285e48]">
           <WarningCircle size={13} className="shrink-0 mt-px" />
-          <span className="flex-1 min-w-0">这个浏览器不支持语音识别，换 Chrome 或 Edge 就能用。你也可以直接打字。</span>
+          <span className="flex-1 min-w-0">{sttMsg}</span>
           <button
             type="button"
-            onClick={() => setSttUnsupported(false)}
+            onClick={() => setSttMsg("")}
             className="shrink-0 text-[#285e48]/70 hover:text-[#285e48]"
             aria-label="知道了"
           >
