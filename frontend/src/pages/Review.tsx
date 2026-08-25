@@ -422,6 +422,9 @@ function HistoryTab() {
     queryKey: ["review-history"],
     queryFn: () => api.reviewHistory(),
   });
+  // 手风琴：同一时刻只展开一条。点开新的会自动收起旧的 —— 否则一屏能同时
+  // 摊开十几条,越点越乱(这正是之前"展开不收起"的毛病)。
+  const [openId, setOpenId] = useState<number | null>(null);
   if (isLoading) return <p className="text-sm" style={{ color: "var(--rv-muted)" }}>Loading…</p>;
   if (!data?.length) {
     return (
@@ -433,7 +436,13 @@ function HistoryTab() {
   return (
     <Card className="!p-0 overflow-hidden">
       {data.map((r, i) => (
-        <HistoryRowView key={r.id} row={r} first={i === 0} />
+        <HistoryRowView
+          key={r.id}
+          row={r}
+          first={i === 0}
+          open={openId === r.id}
+          onToggle={() => setOpenId((cur) => (cur === r.id ? null : r.id))}
+        />
       ))}
     </Card>
   );
@@ -441,10 +450,25 @@ function HistoryTab() {
 
 /** 一行历史。点开看完整答案 + 例句 —— 列表态必须截断（否则一条长释义
  *  会把整页撑宽），所以"看全"这件事得有个去处。 */
-function HistoryRowView({ row, first }: { row: ReviewHistoryRow; first: boolean }) {
+function HistoryRowView({
+  row,
+  first,
+  open,
+  onToggle,
+}: {
+  row: ReviewHistoryRow;
+  first: boolean;
+  open: boolean;
+  onToggle: () => void;
+}) {
   const qc = useQueryClient();
-  const [open, setOpen] = useState(false);
   const [graded, setGraded] = useState("");
+  const rowRef = useRef<HTMLDivElement>(null);
+  // 展开后把这一行滚进视野 —— 手风琴模式下点开靠下的条目,展开内容常在
+  // 屏幕外,不滚一下会以为"没反应"。block:nearest 只在必要时滚,不抢镜。
+  useEffect(() => {
+    if (open) rowRef.current?.scrollIntoView({ behavior: "smooth", block: "nearest" });
+  }, [open]);
   const grade = useMutation({
     mutationFn: (r: ReviewResult) => api.reviewGrade(row.id, r),
     onSuccess: (res) => {
@@ -454,9 +478,10 @@ function HistoryRowView({ row, first }: { row: ReviewHistoryRow; first: boolean 
     },
   });
   return (
-    <div style={{ borderTop: first ? "none" : "1px solid var(--rv-line)" }}>
+    <div ref={rowRef} style={{ borderTop: first ? "none" : "1px solid var(--rv-line)" }}>
       <button
-        onClick={() => setOpen(!open)}
+        onClick={onToggle}
+        aria-expanded={open}
         className="w-full px-4 py-3 flex items-center gap-3 text-left"
       >
         <div className="flex-1 min-w-0">
