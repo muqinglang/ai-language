@@ -453,8 +453,6 @@ function HistoryRowView({ row, first }: { row: ReviewHistoryRow; first: boolean 
       qc.invalidateQueries({ queryKey: ["review-due"] });
     },
   });
-  // 可听写的例句：结构化 detail 里的 english 字段，外加纯文本 example。
-  const exampleSentences = collectExamples(row);
   return (
     <div style={{ borderTop: first ? "none" : "1px solid var(--rv-line)" }}>
       <button
@@ -504,22 +502,8 @@ function HistoryRowView({ row, first }: { row: ReviewHistoryRow; first: boolean 
               {row.example}
             </div>
           )}
+          {/* 例句听写就在 DetailView 里(顶部那组),这里不再重复一遍。 */}
           <DetailView detail={row.detail} />
-
-          {/* 例句听写。历史页不只是"看看学过什么" —— 学过的东西正是最该
-              拿来练耳朵的。 */}
-          {exampleSentences.length > 0 && (
-            <div className="mt-3 pt-3" style={{ borderTop: "1px solid var(--rv-line)" }}>
-              <div className="text-2xs mb-2" style={{ color: "var(--rv-faint)" }}>
-                Dictation
-              </div>
-              <div className="space-y-2">
-                {exampleSentences.map((ex, i) => (
-                  <ListenAndType key={i} text={ex.text} label={ex.label} compact />
-                ))}
-              </div>
-            </div>
-          )}
 
           {/* 打分。没有这个的话，复习历史就只是个只读列表 —— 而你在这里
               重新听、重新想，正是一次真实的复习，它应该算数。 */}
@@ -558,23 +542,6 @@ function HistoryRowView({ row, first }: { row: ReviewHistoryRow; first: boolean 
       )}
     </div>
   );
-}
-
-/** 从一条记录里凑出可以听写的英文句子。detail 的形状由模型决定，
- *  所以按 shape 取而不是假设字段一定在。 */
-function collectExamples(row: ReviewHistoryRow): { text: string; label?: string }[] {
-  const out: { text: string; label?: string }[] = [];
-  const d = row.detail as Record<string, unknown> | undefined;
-  const arr = (Array.isArray(row.detail) ? row.detail : d?.examples) as
-    | { scenario?: string; english?: string }[]
-    | undefined;
-  for (const ex of arr ?? []) {
-    if (ex?.english?.trim()) out.push({ text: ex.english.trim(), label: ex.scenario });
-  }
-  if (!out.length && row.example.trim() && /[a-zA-Z]/.test(row.example)) {
-    out.push({ text: row.example.trim() });
-  }
-  return out;
 }
 
 // ─────────────────────────────── Listening
