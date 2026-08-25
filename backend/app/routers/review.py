@@ -434,13 +434,25 @@ async def _todays_material(db: AsyncSession, user_id: int) -> list[ReviewItem]:
 
 # ---------------------------------------------------------------- 听力
 
-_STORY_SYS = """You write a very short listening-practice story for a Chinese learner of English.
+_STORY_SYS = """You write a short, natural listening-practice story for a Chinese learner of English.
+
+The target expressions below come from today's review and may be about COMPLETELY
+UNRELATED things. Do NOT force them into a single event — that produces a jarring,
+nonsensical story. Instead write it as ONE person casually recounting their day or
+week (a diary / voice-note feel), so different topics can show up as different
+moments or passing thoughts.
 
 Rules:
-- 90-140 words, one paragraph, natural spoken English.
-- Weave in EVERY target expression below, used the way a native actually uses it.
-- Keep the vocabulary around the target expressions simple, so the target is what
-  the listener has to catch — not the words around it.
+- 110-160 words. One or two short paragraphs.
+- Use EVERY target expression, the way a native actually would.
+- Coherence and natural flow come FIRST. Link the moments with real spoken
+  transitions ("Oh, and earlier…", "By the way…", "Anyway…") — never a mechanical
+  list of unrelated sentences, and never a forced cause-and-effect between things
+  that aren't related.
+- If two expressions don't belong to the same moment, just move on to the next
+  moment naturally; the narrator's day is the thread that holds it together.
+- Keep the words AROUND the targets simple, so the target is what the listener has
+  to catch — not the words around it.
 - No title, no translation, no explanation. Output the story text only."""
 
 
