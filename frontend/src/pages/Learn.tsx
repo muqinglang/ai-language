@@ -1459,6 +1459,16 @@ function AITab({
   // 浏览器不支持语音识别。原来用 alert() 说这件事 —— 它阻塞整个页面，
   // 而且弹在屏幕顶部，跟用户刚点的那个麦克风按钮完全脱节。改成就地提示。
   const [sttMsg, setSttMsg] = useState("");
+  // 装成 iOS 主屏 App 后语音输入用不了 —— 一进 AI 对话就主动提示一次
+  // （可关闭；关了记在 localStorage，不再重复烦。点录音时的即时提示另算）。
+  useEffect(() => {
+    if (!isIOSStandalone()) return;
+    try {
+      if (!localStorage.getItem("ios-standalone-mic-hint")) {
+        setSttMsg("装成 App 后无法用语音输入。想用语音，请在 Safari 里打开 justspeak.cn 网页版；打字不受影响。");
+      }
+    } catch { /* ignore */ }
+  }, []);
   const [autoSpeak, setAutoSpeak] = useState(() => {
     try {
       return localStorage.getItem("ai-autospeak") !== "0";
@@ -2205,7 +2215,11 @@ function AITab({
           <span className="flex-1 min-w-0">{sttMsg}</span>
           <button
             type="button"
-            onClick={() => setSttMsg("")}
+            onClick={() => {
+              setSttMsg("");
+              // 记住"关过"——之后不再主动弹这条提示（点录音的即时提示仍会显示）。
+              try { localStorage.setItem("ios-standalone-mic-hint", "1"); } catch { /* ignore */ }
+            }}
             className="shrink-0 text-[#285e48]/70 hover:text-[#285e48]"
             aria-label="知道了"
           >
